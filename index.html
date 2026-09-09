@@ -242,4 +242,419 @@
     </div>
 
     <div id="actionModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
-        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-sm w
+        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-dark-border">
+                <h3 class="text-base font-bold text-white flex items-center gap-2"><i class="fas fa-edit text-brand-400"></i> Tukar Poin (Redeem)</h3>
+                <button onclick="closeActionModal()" class="text-slate-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-sm">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">Nama Tamu</label>
+                    <input type="text" id="editNameInput" readonly class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs cursor-not-allowed">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">Poin Tersedia</label>
+                        <input type="text" id="editMaxPointInput" readonly class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-brand-400 font-bold text-xs cursor-not-allowed">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">Redeem Poin</label>
+                        <input type="number" id="editRedeemInput" oninput="validateRedeemInput(this)" class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-emerald-400 font-bold text-xs focus:outline-none focus:border-brand-500" placeholder="0">
+                    </div>
+                </div>
+                <p id="redeemWarning" class="text-[11px] text-amber-400 hidden"><i class="fas fa-exclamation-triangle mr-1"></i> Jumlah redeem tidak boleh melebihi maksimal poin tamu!</p>
+                <p id="redeemLockedNotice" class="text-[11px] text-slate-400 italic hidden"><i class="fas fa-lock mr-1 text-emerald-400"></i> Poin sudah ditukar permanen. Redeem baru hanya bertambah otomatis jika tamu melakukan stay kembali.</p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeActionModal()" class="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold">Batal</button>
+                <button id="saveRedeemBtn" onclick="saveActionEdit()" class="gold-gradient text-slate-950 px-4 py-2 rounded-xl text-xs font-bold shadow-md hover:opacity-90">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="importModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-3xl w-full p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-3 pb-3 border-b border-dark-border">
+                <h3 class="text-base font-bold text-white"><i class="fas fa-file-excel text-brand-400"></i> Import Data Excel</h3>
+                <button onclick="toggleImportModal()" class="text-slate-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="bg-[#1e2124] p-4 rounded-2xl border border-slate-800 mb-4 text-xs space-y-2 text-slate-300">
+                <span class="font-bold text-brand-400 block"><i class="fas fa-info-circle"></i> Petunjuk Format Kolom (Copy & Paste dari Excel):</span>
+                <p>Urutan kolom saat copy dari Excel: <strong>Nama Tamu | No HP | Check-In (DD-MM-YYYY) | Check-Out (DD-MM-YYYY) | Company / SOB</strong></p>
+                <p class="text-[11px] text-slate-400">Contoh format tanggal wajib: <strong>03-10-2026</strong> atau <strong>15-10-2026</strong> (format `DD-MM-YYYY` dipastikan aman & konsisten).</p>
+            </div>
+            <textarea id="importTextarea" rows="8" placeholder="Paste data excel di sini (Format: Nama | No HP | Check-In | Check-Out | Company)..." class="w-full bg-[#1e2124] border border-slate-700 rounded-xl p-4 text-xs font-mono text-white focus:outline-none focus:border-brand-500 mb-4"></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleImportModal()" class="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold">Batal</button>
+                <button onclick="processExcelImport()" class="gold-gradient text-slate-950 px-5 py-2 rounded-xl text-xs font-bold">Process Data</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Terhubung langsung ke Google Sheets Apps Script Anda
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx5hm2UqHNO9uBBFUhpxDM61usOi4hvkBP8WQ3b2VbVrJt3RYJ-1KFh4oE7TocZ_zGzaw/exec';
+        let guestDatabase = [];
+        
+        let currentPage = 1;
+        const itemsPerPage = 15;
+        let filteredData = [];
+        let activeEditIndex = null;
+        let currentSelectedYear = "2026";
+        let currentSelectedMonth = "10";
+
+        window.onload = function() { 
+            updateMonthLabelDisplay();
+            fetchDataFromSheets(); 
+        };
+
+        function toggleMonthDropdown() {
+            const popup = document.getElementById('monthDropdownPopup');
+            popup.classList.toggle('hidden');
+        }
+
+        function updateMonthSelection() {
+            const yr = document.getElementById('yearSelect').value;
+            currentSelectedYear = yr;
+        }
+
+        function selectMonth(mNum) {
+            currentSelectedMonth = String(mNum).padStart(2, '0');
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+            const monthFullNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            
+            const buttons = document.querySelectorAll('#monthGridContainer button');
+            buttons.forEach((btn, idx) => {
+                if ((idx + 1) === mNum) {
+                    btn.className = "p-2 rounded-xl bg-brand-500 text-slate-950 font-bold transition-all";
+                } else {
+                    btn.className = "p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all";
+                }
+            });
+
+            const labelStr = `${monthFullNames[mNum - 1]} ${currentSelectedYear}`;
+            document.getElementById('monthPickerLabel').innerText = `${monthNames[mNum - 1]} ${currentSelectedYear}`;
+            document.getElementById('selectedMonthLabel').innerText = labelStr;
+
+            document.getElementById('monthDropdownPopup').classList.add('hidden');
+            filterData();
+        }
+
+        function updateMonthLabelDisplay() {
+            const monthFullNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            const labelStr = `${monthFullNames[parseInt(currentSelectedMonth) - 1]} ${currentSelectedYear}`;
+            document.getElementById('selectedMonthLabel').innerText = labelStr;
+        }
+
+        function normalizeDate(dateStr) {
+            if (!dateStr) return "";
+            let cleanStr = String(dateStr).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
+                let p = cleanStr.split('-');
+                return p[2] + "-" + p[1] + "-" + p[0];
+            }
+            return cleanStr;
+        }
+
+        function fetchDataFromSheets() {
+            if (!SCRIPT_URL) {
+                filterData();
+                updateAllTimeStats();
+                return;
+            }
+            fetch(SCRIPT_URL)
+                .then(res => res.json())
+                .then(data => {
+                    if (Array.isArray(data) && data.length > 0) {
+                        guestDatabase = data.map((item, idx) => ({
+                            id: item.id || idx + 1,
+                            name: item.name || "",
+                            phone: String(item.phone || ""),
+                            company: item.company || "",
+                            sob: item.sob || "CORP / GOV",
+                            point: Number(item.point) || 1,
+                            redeemed: Number(item.redeemed) || 0,
+                            isRedeemedLocked: Boolean(item.isRedeemedLocked),
+                            history: item.history || [{ checkIn: normalizeDate(item.checkIn), checkOut: normalizeDate(item.checkOut), company: item.company || "", point: Number(item.point) || 1 }]
+                        }));
+                    }
+                    filterData();
+                    updateAllTimeStats();
+                }).catch(err => {
+                    console.log("Using zero-data state", err);
+                    filterData();
+                    updateAllTimeStats();
+                });
+        }
+
+        function updateAllTimeStats() {
+            document.getElementById('allTimeGuests').innerText = guestDatabase.length;
+            document.getElementById('allTimePoints').innerText = guestDatabase.reduce((acc, curr) => acc + (curr.point || 0), 0);
+            document.getElementById('allTimeRedeemed').innerText = guestDatabase.reduce((acc, curr) => acc + (curr.redeemed || 0), 0);
+            renderTop20Leaderboard();
+        }
+
+        function filterData() {
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
+            const sobVal = document.getElementById('sobFilter').value;
+
+            filteredData = guestDatabase.filter(item => {
+                const matchSearch = !search || item.name.toLowerCase().includes(search) || item.phone.toLowerCase().includes(search);
+                const matchSOB = sobVal === 'ALL' || item.sob === sobVal;
+                let matchMonth = true;
+                if (item.history) {
+                    matchMonth = item.history.some(h => {
+                        let parts = h.checkIn.split('-');
+                        if (parts.length === 3) {
+                            return (`${parts[2]}-${parts[1]}` === `${currentSelectedYear}-${currentSelectedMonth}`);
+                        }
+                        return false;
+                    });
+                }
+                return matchSearch && matchSOB && matchMonth;
+            });
+
+            document.getElementById('monthlyGuestsCount').innerText = filteredData.length;
+            document.getElementById('monthlyPointsCount').innerText = filteredData.reduce((acc, curr) => acc + (curr.point || 0), 0) + " Pts";
+            document.getElementById('monthlyRedeemCount').innerText = filteredData.reduce((acc, curr) => acc + (curr.redeemed || 0), 0) + " Pts";
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('guestTableBody');
+            tbody.innerHTML = '';
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const paginated = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+            if (paginated.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-slate-500">Tidak ada data ditemukan. Silakan lakukan import data.</td></tr>`;
+            } else {
+                paginated.forEach((guest) => {
+                    const globalIdx = guestDatabase.findIndex(g => g === guest);
+                    const latestStay = guest.history && guest.history.length > 0 ? guest.history[guest.history.length - 1] : { checkIn: '-', checkOut: '-' };
+                    
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-slate-900/40 transition-colors";
+                    row.innerHTML = `
+                        <td class="px-6 py-4 font-semibold text-white">${guest.name}</td>
+                        <td class="px-6 py-4">
+                            <button onclick="openGuestDetail(${globalIdx})" class="text-brand-400 font-mono text-xs hover:underline bg-[#1e2124] px-3.5 py-2 rounded-xl border border-slate-700/60 flex items-center gap-2.5 w-max shadow-sm">
+                                <i class="fas fa-phone-alt text-[11px]"></i> ${guest.phone || '-'}
+                            </button>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <div class="inline-flex items-center gap-3 bg-[#1e2124] px-4 py-2 rounded-xl border border-slate-800/80 text-xs text-slate-300 shadow-sm min-w-[320px] justify-center">
+                                <span class="text-brand-400 font-medium whitespace-nowrap"><i class="fas fa-sign-in-alt mr-1"></i> ${latestStay.checkIn}</span>
+                                <span class="text-slate-600 font-bold">-</span>
+                                <span class="text-amber-400 font-medium whitespace-nowrap"><i class="fas fa-sign-out-alt mr-1"></i> ${latestStay.checkOut}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="text-xs text-slate-300 block whitespace-nowrap font-medium min-w-[200px]">${guest.company || '-'}</span>
+                            <span class="text-[10px] font-bold px-3 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/30 inline-block mt-1">${guest.sob}</span>
+                        </td>
+                        <td class="px-6 py-4 text-center font-bold text-brand-400">${guest.point}</td>
+                        <td class="px-6 py-4 text-center font-bold text-emerald-400">${guest.redeemed || 0}</td>
+                        <td class="px-6 py-4 text-center">
+                            <button onclick="openActionModal(${globalIdx})" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 transition-all inline-flex items-center justify-center shadow-md">
+                                <i class="fas fa-pen text-xs"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            document.getElementById('paginationInfo').innerText = `Menampilkan ${paginated.length} dari ${filteredData.length} data`;
+            document.getElementById('pageIndicator').innerText = `${currentPage} / ${totalPages}`;
+            document.getElementById('prevBtn').disabled = (currentPage === 1);
+            document.getElementById('nextBtn').disabled = (currentPage === totalPages || totalPages === 0);
+        }
+
+        function changePage(dir) { currentPage += dir; renderTable(); }
+
+        function openGuestDetail(index) {
+            const guest = guestDatabase[index];
+            if (!guest) return;
+            document.getElementById('modalGuestName').innerText = guest.name;
+            document.getElementById('modalGuestPhone').innerText = guest.phone;
+            document.getElementById('modalPoint').innerText = guest.point + " Pts";
+            document.getElementById('modalRedeemed').innerText = (guest.redeemed || 0) + " Pts";
+            
+            const historyContainer = document.getElementById('modalStayHistoryList');
+            historyContainer.innerHTML = '';
+            if (guest.history && guest.history.length > 0) {
+                guest.history.forEach((h, idx) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = "bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between text-xs";
+                    itemDiv.innerHTML = `
+                        <div>
+                            <span class="text-brand-400 font-bold block mb-1">Stay #${idx + 1} - <span class="text-slate-300 font-normal">${h.company || '-'}</span></span>
+                            <span class="text-slate-300"><i class="fas fa-sign-in-alt text-[10px] mr-1 text-brand-400"></i> ${h.checkIn} &nbsp;-&nbsp; <i class="fas fa-sign-out-alt text-[10px] mr-1 text-amber-400"></i> ${h.checkOut}</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-brand-400 font-bold bg-brand-500/10 px-2.5 py-1 rounded-xl border border-brand-500/30">+${h.point} Pts</span>
+                        </div>
+                    `;
+                    historyContainer.appendChild(itemDiv);
+                });
+            } else {
+                historyContainer.innerHTML = `<p class="text-xs text-slate-500 text-center py-2">Tidak ada riwayat stay.</p>`;
+            }
+
+            const m = document.getElementById('detailModal');
+            m.classList.remove('hidden');
+            setTimeout(() => m.classList.remove('opacity-0'), 10);
+        }
+        function closeDetailModal() {
+            document.getElementById('detailModal').classList.add('hidden');
+        }
+
+        function openActionModal(index) {
+            activeEditIndex = index;
+            const guest = guestDatabase[index];
+            document.getElementById('editNameInput').value = guest.name;
+            document.getElementById('editMaxPointInput').value = guest.point + " Pts";
+            document.getElementById('editMaxPointInput').dataset.max = guest.point;
+            document.getElementById('editRedeemInput').value = guest.redeemed || 0;
+            document.getElementById('editRedeemInput').max = guest.point;
+            
+            const warning = document.getElementById('redeemWarning');
+            const lockedNotice = document.getElementById('redeemLockedNotice');
+            const saveBtn = document.getElementById('saveRedeemBtn');
+
+            warning.classList.add('hidden');
+
+            if (guest.isRedeemedLocked) {
+                document.getElementById('editRedeemInput').disabled = true;
+                document.getElementById('editRedeemInput').classList.add('opacity-50', 'cursor-not-allowed');
+                lockedNotice.classList.remove('hidden');
+                saveBtn.disabled = true;
+                saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                document.getElementById('editRedeemInput').disabled = false;
+                document.getElementById('editRedeemInput').classList.remove('opacity-50', 'cursor-not-allowed');
+                lockedNotice.classList.add('hidden');
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+
+            const m = document.getElementById('actionModal');
+            m.classList.remove('hidden');
+            setTimeout(() => m.classList.remove('opacity-0'), 10);
+        }
+        function closeActionModal() {
+            document.getElementById('actionModal').classList.add('hidden');
+        }
+
+        function validateRedeemInput(input) {
+            const max = parseInt(document.getElementById('editMaxPointInput').dataset.max) || 0;
+            let val = parseInt(input.value) || 0;
+            const warning = document.getElementById('redeemWarning');
+            if (val > max) {
+                warning.classList.remove('hidden');
+                input.value = max;
+            } else {
+                warning.classList.add('hidden');
+            }
+        }
+
+        function saveActionEdit() {
+            const newRedeem = parseInt(document.getElementById('editRedeemInput').value) || 0;
+            if (activeEditIndex !== null && guestDatabase[activeEditIndex]) {
+                guestDatabase[activeEditIndex].redeemed = newRedeem;
+                if (newRedeem > 0) {
+                    guestDatabase[activeEditIndex].isRedeemedLocked = true;
+                }
+                filterData();
+                updateAllTimeStats();
+            }
+            closeActionModal();
+        }
+
+        function toggleLeaderboard() { document.getElementById('leaderboardPanel').classList.toggle('hidden'); }
+        function renderTop20Leaderboard() {
+            let map = {};
+            guestDatabase.forEach(g => {
+                if (!map[g.phone]) map[g.phone] = { name: g.name, total: 0, stays: 0 };
+                map[g.phone].total += (g.point || 0);
+                map[g.phone].stays += (g.history ? g.history.length : 1);
+            });
+            const container = document.getElementById('top20Container');
+            container.innerHTML = Object.values(map).sort((a,b)=>b.total - a.total).slice(0,20).map((m, i)=>`
+                <div class="bg-[#1e2124] border border-slate-800 rounded-xl p-3 flex justify-between items-center text-xs">
+                    <div><span class="font-bold text-white">${i+1}. ${m.name}</span><span class="text-[10px] text-slate-400 block">${m.stays}x stay</span></div>
+                    <span class="font-bold text-brand-400">${m.total} Pts</span>
+                </div>
+            `).join('') || '<p class="text-xs text-slate-500 col-span-full text-center">Belum ada data.</p>';
+        }
+
+        function openImportModal() { document.getElementById('importModal').classList.remove('hidden'); setTimeout(()=>document.getElementById('importModal').classList.remove('opacity-0'),10); }
+        function toggleImportModal() { document.getElementById('importModal').classList.add('hidden'); }
+        
+        function processExcelImport() {
+            const text = document.getElementById('importTextarea').value.trim();
+            if (!text) return;
+            let importDataList = [];
+            let countNew = 0;
+            
+            text.split('\n').forEach(line => {
+                let cols = line.split('\t');
+                if (cols.length < 5) cols = line.split(/[,;|]/);
+                if (cols.length >= 5) {
+                    let name = cols[0].trim();
+                    let phone = cols[1].trim();
+                    let checkIn = normalizeDate(cols[2].trim());
+                    let checkOut = normalizeDate(cols[3].trim());
+                    let comp = cols[4].trim();
+                    let sob = comp.toLowerCase().includes('agoda') || comp.toLowerCase().includes('traveloka') || comp.toLowerCase().includes('tiket') || comp.toLowerCase().includes('booking') ? 'OTA' : 'CORP / GOV';
+                    let pt = sob === 'OTA' ? 1 : 2;
+
+                    importDataList.push({ name, phone, checkIn, checkOut, company: comp, point: pt, redeemed: 0 });
+
+                    let existing = guestDatabase.find(g => g.phone === phone);
+                    if (existing) {
+                        existing.point += pt;
+                        existing.isRedeemedLocked = false;
+                        existing.history.push({ checkIn, checkOut, company: comp, point: pt });
+                    } else {
+                        guestDatabase.push({
+                            id: guestDatabase.length + 1,
+                            name: name,
+                            phone: phone,
+                            company: comp,
+                            sob: sob,
+                            point: pt,
+                            redeemed: 0,
+                            isRedeemedLocked: false,
+                            history: [{ checkIn, checkOut, company: comp, point: pt }]
+                        });
+                    }
+                    countNew++;
+                }
+            });
+
+            if (countNew > 0) {
+                if (SCRIPT_URL) {
+                    fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(importDataList)
+                    }).catch(err => console.log('Sync to sheets error:', err));
+                }
+
+                filterData();
+                updateAllTimeStats();
+                toggleImportModal();
+                alert(`Berhasil memproses dan mengimpor ${countNew} data tamu!`);
+            } else {
+                alert("Format paste excel tidak valid. Pastikan kolom: Nama | No HP | Check-In | Check-Out | Company.");
+            }
+        }
+    </script>
+</body>
+</html>
