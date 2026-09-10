@@ -1,132 +1,665 @@
-function doGet(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data");
-  var rows = sheet.getDataRange().getValues();
-  var headers = rows[0];
-  var data = [];
-  
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var obj = {};
-    for (var j = 0; j < headers.length; j++) {
-      obj[headers[j]] = row[j];
-    }
-    data.push(obj);
-  }
-  
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERIAN Loyalty Member Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#fffbeb', 100: '#fef3c7', 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309' },
+                        dark: { bg: '#1e2124', card: '#282b30', border: '#36393f' }
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gold-gradient { background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #d97706 100%); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e2124; }
+        ::-webkit-scrollbar-thumb { background: #4f545c; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-dark-bg text-slate-100 min-h-screen font-sans antialiased selection:bg-brand-500 selection:text-slate-950">
 
-function normalizeDate(dateStr) {
-  if (!dateStr) return "";
-  var cleanStr = String(dateStr).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
-    var p = cleanStr.split('-');
-    return p[2] + "-" + p[1] + "-" + p[0];
-  }
-  return cleanStr;
-}
+    <header class="bg-[#1e2124]/90 backdrop-blur-md border-b border-dark-border sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="bg-[#212428] border border-slate-700/60 px-4 py-2 rounded-2xl flex items-center justify-center shadow-inner min-w-[150px] h-12">
+                    <span class="font-bold tracking-wider text-white text-sm">ERIAN HOTEL</span>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white">ERIAN Loyalty Member</h1>
+                    <p class="text-xs text-slate-400">Database & Poin Tamu Hotel ERIAN</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="openImportModal()" class="gold-gradient text-slate-950 px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg hover:opacity-90 transition-all flex items-center gap-2">
+                    <i class="fas fa-file-excel text-sm"></i>
+                    <span>+ Import Excel</span>
+                </button>
+            </div>
+        </div>
+    </header>
 
-function doPost(e) {
-  try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data");
-    var requestData = JSON.parse(e.postData.contents);
-    
-    function calculateSOBAndPoint(company) {
-      var comp = (company || "").toLowerCase();
-      if (comp.includes("agoda") || comp.includes("traveloka") || comp.includes("tiket") || comp.includes("booking") || comp.includes("expedia")) {
-        return { sob: "OTA", point: 1 };
-      } else if (comp.includes("fit") || comp.includes("walk in") || comp.includes("personal")) {
-        return { sob: "FIT / WIG", point: 1 };
-      } else {
-        return { sob: "CORP / GOV", point: 2 };
-      }
-    }
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-gradient-to-br from-slate-900 to-[#282b30] border border-blue-500/30 rounded-2xl p-6 shadow-xl flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-semibold uppercase tracking-wider text-blue-400 flex items-center gap-1.5"><i class="fas fa-users"></i> Total Keseluruhan Tamu</span>
+                    <div class="flex items-baseline gap-2 mt-4">
+                        <span id="allTimeGuests" class="text-3xl font-bold text-white">0</span>
+                        <span class="text-xs text-slate-400">tamu terdaftar</span>
+                    </div>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-xl shadow-inner">
+                    <i class="fas fa-user-friends"></i>
+                </div>
+            </div>
 
-    // Ambil data yang sudah ada di sheet untuk validasi anti-double
-    var existingRows = sheet.getDataRange().getValues();
-    var existingPhones = {};
-    
-    // Lewati baris header (index 0)
-    for (var r = 1; r < existingRows.length; r++) {
-      var phoneCol = String(existingRows[r][2]).replace(/['"]/g, "").trim();
-      var checkInCol = String(existingRows[r][3]).trim();
-      var checkOutCol = String(existingRows[r][4]).trim();
-      if (phoneCol) {
-        // Buat kunci unik berdasarkan No HP + Check-In + Check-Out
-        existingPhones[phoneCol + "_" + checkInCol + "_" + checkOutCol] = true;
-      }
-    }
+            <div class="bg-gradient-to-br from-slate-900 to-[#282b30] border border-amber-500/30 rounded-2xl p-6 shadow-xl flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1.5"><i class="fas fa-coins"></i> Total Poin Keseluruhan</span>
+                    <div class="flex items-baseline gap-2 mt-4">
+                        <span id="allTimePoints" class="text-3xl font-bold text-brand-400">0</span>
+                        <span class="text-xs text-slate-400">Pts terkumpul</span>
+                    </div>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xl shadow-inner">
+                    <i class="fas fa-star"></i>
+                </div>
+            </div>
 
-    var lastRow = sheet.getLastRow();
-    var currentId = 0;
-    if (lastRow > 1) {
-      var lastIdVal = sheet.getRange(lastRow, 1).getValue();
-      currentId = !isNaN(lastIdVal) ? Number(lastIdVal) : lastRow - 1;
-    }
+            <div class="bg-gradient-to-br from-slate-900 to-[#282b30] border border-emerald-500/30 rounded-2xl p-6 shadow-xl flex items-center justify-between">
+                <div>
+                    <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5"><i class="fas fa-gift"></i> Total Redeem Point</span>
+                    <div class="flex items-baseline gap-2 mt-4">
+                        <span id="allTimeRedeemed" class="text-3xl font-bold text-emerald-400">0</span>
+                        <span class="text-xs text-slate-400">Pts tertukar</span>
+                    </div>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl shadow-inner">
+                    <i class="fas fa-award"></i>
+                </div>
+            </div>
+        </div>
 
-    var addedCount = 0;
+        <div class="bg-dark-card/90 border border-dark-border rounded-3xl shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-dark-border flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                    <div class="relative flex-1 md:w-72">
+                        <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                        <input type="text" id="searchInput" oninput="filterData()" placeholder="Cari nama tamu / no HP..." class="w-full bg-[#1e2124] border border-slate-700/60 rounded-xl pl-11 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                    </div>
 
-    for (var i = 0; i < requestData.length; i++) {
-      var item = requestData[i];
-      var formattedCheckIn = normalizeDate(item.checkIn || item.checkin);
-      var formattedCheckOut = normalizeDate(item.checkOut || item.checkout);
-      var cleanPhone = String(item.phone || "").replace(/['"]/g, "").trim();
-      
-      // Kunci unik untuk data yang akan dimasukkan
-      var uniqueKey = cleanPhone + "_" + formattedCheckIn + "_" + formattedCheckOut;
-      
-      // Jika kombinasi No HP dan Tanggal Check-In/Out sudah ada, lewati (Cegah Double!)
-      if (existingPhones[uniqueKey]) {
-        continue; 
-      }
-      
-      // Jika belum ada, tandai agar tidak double di batch yang sama
-      existingPhones[uniqueKey] = true;
-      currentId++;
-      
-      var calculated = calculateSOBAndPoint(item.company);
-      
-      sheet.appendRow([
-        currentId,
-        item.name || "",
-        cleanPhone ? "'" + cleanPhone : "",
-        formattedCheckIn,
-        formattedCheckOut,
-        item.company || "",
-        calculated.sob,
-        item.point !== undefined ? item.point : calculated.point,
-        item.redeemed || 0
-      ]);
-      
-      addedCount++;
-    }
-    
-    // Auto-formatting tabel
-    var totalRows = sheet.getLastRow();
-    var lastCol = sheet.getLastColumn();
-    if (totalRows > 0) {
-      sheet.setColumnWidth(1, 50);   sheet.setColumnWidth(2, 300);  sheet.setColumnWidth(3, 200);
-      sheet.setColumnWidth(4, 150);  sheet.setColumnWidth(5, 150);  sheet.setColumnWidth(6, 200);
-      sheet.setColumnWidth(7, 100);  sheet.setColumnWidth(8, 75);   sheet.setColumnWidth(9, 75);
+                    <div class="relative">
+                        <div onclick="toggleMonthDropdown()" class="flex items-center gap-2.5 bg-[#1e2124] border border-slate-700/60 rounded-xl px-4 py-2.5 cursor-pointer hover:border-brand-500/50 transition-colors shadow-sm select-none min-w-[170px] justify-between">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-calendar-alt text-brand-400 text-sm"></i>
+                                <span id="monthPickerLabel" class="text-sm text-white font-medium">Oktober 2026</span>
+                            </div>
+                            <i class="fas fa-chevron-down text-xs text-slate-400"></i>
+                        </div>
+                        
+                        <div id="monthDropdownPopup" class="hidden absolute left-0 mt-2 w-64 bg-[#1e2124] border border-slate-700 rounded-2xl shadow-2xl z-50 p-4 space-y-3">
+                            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Pilih Bulan & Tahun</span>
+                                <select id="yearSelect" onchange="updateMonthSelection()" class="bg-slate-800 text-xs text-white rounded-lg px-2 py-1 border border-slate-700 focus:outline-none">
+                                    <option value="2025">2025</option>
+                                    <option value="2026" selected>2026</option>
+                                    <option value="2027">2027</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 text-xs" id="monthGridContainer">
+                                <button onclick="selectMonth(1)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="01">Jan</button>
+                                <button onclick="selectMonth(2)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="02">Feb</button>
+                                <button onclick="selectMonth(3)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="03">Mar</button>
+                                <button onclick="selectMonth(4)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="04">Apr</button>
+                                <button onclick="selectMonth(5)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="05">Mei</button>
+                                <button onclick="selectMonth(6)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="06">Jun</button>
+                                <button onclick="selectMonth(7)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="07">Jul</button>
+                                <button onclick="selectMonth(8)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="08">Agt</button>
+                                <button onclick="selectMonth(9)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="09">Sep</button>
+                                <button onclick="selectMonth(10)" class="p-2 rounded-xl bg-brand-500 text-slate-950 font-bold transition-all" data-m="10">Okt</button>
+                                <button onclick="selectMonth(11)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="11">Nov</button>
+                                <button onclick="selectMonth(12)" class="p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all" data-m="12">Des</button>
+                            </div>
+                        </div>
+                    </div>
 
-      var headerRange = sheet.getRange(1, 1, 1, lastCol);
-      headerRange.setFontFamily("Arial").setFontWeight("bold").setFontSize(15).setHorizontalAlignment("center").setVerticalAlignment("middle").setBackground("#1e2124").setFontColor("#ffffff");
-      sheet.setRowHeight(1, 45);
+                    <select id="sobFilter" onchange="filterData()" class="bg-[#1e2124] border border-slate-700/60 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                        <option value="ALL">Semua SOB</option>
+                        <option value="OTA">OTA</option>
+                        <option value="FIT / WIG">FIT / WIG</option>
+                        <option value="CORP / GOV">CORP / GOV</option>
+                    </select>
+                </div>
+                <button onclick="toggleLeaderboard()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+                    <i class="fas fa-trophy text-brand-400"></i>
+                    <span>Top 20 Member</span>
+                </button>
+            </div>
 
-      if (totalRows > 1) {
-        var dataRange = sheet.getRange(2, 1, totalRows - 1, lastCol);
-        sheet.setRowHeights(2, totalRows - 1, 45);
-        dataRange.setFontFamily("Times New Roman").setFontSize(11).setVerticalAlignment("middle").setWrap(true); 
-        sheet.getRange(2, 1, totalRows - 1, 3).setHorizontalAlignment("left");   
-        sheet.getRange(2, 4, totalRows - 1, 3).setHorizontalAlignment("center"); 
-        sheet.getRange(2, 7, totalRows - 1, 3).setHorizontalAlignment("center"); 
-        dataRange.setBorder(true, true, true, true, true, true, "#cbd5e1", SpreadsheetApp.BorderStyle.SOLID);
-      }
-    }
-    
-    return ContentService.createTextOutput(JSON.stringify({status: "success", added: addedCount})).setMimeType(ContentService.MimeType.JSON);
-  } catch(error) {
-    return ContentService.createTextOutput(JSON.stringify({status: "error", message: error.toString()})).setMimeType(ContentService.MimeType.JSON);
-  }
-}
+            <div class="bg-[#1e2124] border-b border-dark-border px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <div class="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse"></div>
+                    <span class="text-xs font-bold tracking-wider text-slate-300 uppercase">Statistik Periode <span id="selectedMonthLabel" class="text-brand-400">Oktober 2026</span></span>
+                </div>
+                <div class="flex items-center gap-6 text-xs">
+                    <span class="text-slate-400">Tamu Bulan Ini: <strong id="monthlyGuestsCount" class="text-white">0</strong></span>
+                    <span class="text-slate-400">Poin Bulan Ini: <strong id="monthlyPointsCount" class="text-brand-400">0 Pts</strong></span>
+                    <span class="text-slate-400">Redeem Bulan Ini: <strong id="monthlyRedeemCount" class="text-emerald-400">0 Pts</strong></span>
+                </div>
+            </div>
+
+            <div id="leaderboardPanel" class="hidden border-b border-dark-border bg-[#1e2124] p-6">
+                <h3 class="text-sm font-bold text-brand-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <i class="fas fa-crown text-amber-400"></i> Top 20 Member Leaderboard
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-64 overflow-y-auto pr-2" id="top20Container"></div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-[#1e2124] text-slate-400 text-[11px] uppercase tracking-wider border-b border-dark-border">
+                            <th class="px-6 py-4">Guest Name</th>
+                            <th class="px-6 py-4">Phone Number</th>
+                            <th class="px-6 py-4 text-center min-w-[340px]">Stay Period</th>
+                            <th class="px-6 py-4 text-center min-w-[240px]">Company / SOB</th>
+                            <th class="px-6 py-4 text-center">Point</th>
+                            <th class="px-6 py-4 text-center">Redeemed</th>
+                            <th class="px-6 py-4 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="guestTableBody" class="divide-y divide-dark-border/60 text-sm"></tbody>
+                </table>
+            </div>
+
+            <div class="px-6 py-4 border-t border-dark-border bg-[#1e2124]/40 flex items-center justify-between">
+                <span class="text-xs text-slate-400" id="paginationInfo">Menampilkan 0 dari 0 data</span>
+                <div class="flex items-center gap-2">
+                    <button onclick="changePage(-1)" id="prevBtn" class="bg-slate-800 text-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-700 disabled:opacity-40">Prev</button>
+                    <span id="pageIndicator" class="text-xs font-medium px-3 py-1 bg-[#1e2124] border border-slate-800 rounded-lg text-white">1 / 1</span>
+                    <button onclick="changePage(1)" id="nextBtn" class="bg-slate-800 text-slate-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-700 disabled:opacity-40">Next</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="detailModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-dark-border">
+                <h3 class="text-base font-bold text-white flex items-center gap-2"><i class="fas fa-id-card text-brand-400"></i> Detail Riwayat Tamu</h3>
+                <button onclick="closeDetailModal()" class="text-slate-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-sm">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800">
+                        <span class="text-xs text-slate-400 block">Nama Tamu</span>
+                        <strong id="modalGuestName" class="text-white text-base"></strong>
+                    </div>
+                    <div class="bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800">
+                        <span class="text-xs text-slate-400 block">Nomor WhatsApp / HP</span>
+                        <strong id="modalGuestPhone" class="text-brand-400 font-mono text-base"></strong>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-center">
+                    <div class="bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">TOTAL AKUMULASI POIN</span>
+                        <strong id="modalPoint" class="text-base text-brand-400"></strong>
+                    </div>
+                    <div class="bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">TOTAL REDEEM</span>
+                        <strong id="modalRedeemed" class="text-base text-emerald-400"></strong>
+                    </div>
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2"><i class="fas fa-history mr-1"></i> Daftar Seluruh Riwayat Check-In & Check-Out:</span>
+                    <div id="modalStayHistoryList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+            <div class="flex justify-end pt-2">
+                <button onclick="closeDetailModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-semibold">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="actionModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-dark-border">
+                <h3 class="text-base font-bold text-white flex items-center gap-2"><i class="fas fa-edit text-brand-400"></i> Tukar Poin (Redeem)</h3>
+                <button onclick="closeActionModal()" class="text-slate-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="space-y-3 text-sm">
+                <div>
+                    <label class="text-xs text-slate-400 block mb-1">Nama Tamu</label>
+                    <input type="text" id="editNameInput" readonly class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs cursor-not-allowed">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">Poin Tersedia</label>
+                        <input type="text" id="editMaxPointInput" readonly class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-brand-400 font-bold text-xs cursor-not-allowed">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">Redeem Poin</label>
+                        <input type="number" id="editRedeemInput" oninput="validateRedeemInput(this)" class="w-full bg-[#1e2124] border border-slate-700 rounded-xl px-3 py-2 text-emerald-400 font-bold text-xs focus:outline-none focus:border-brand-500" placeholder="0">
+                    </div>
+                </div>
+                <p id="redeemWarning" class="text-[11px] text-amber-400 hidden"><i class="fas fa-exclamation-triangle mr-1"></i> Jumlah redeem tidak boleh melebihi maksimal poin tamu!</p>
+                <p id="redeemLockedNotice" class="text-[11px] text-slate-400 italic hidden"><i class="fas fa-lock mr-1 text-emerald-400"></i> Poin sudah ditukar permanen. Redeem baru hanya bertambah otomatis jika tamu melakukan stay kembali.</p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeActionModal()" class="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold">Batal</button>
+                <button id="saveRedeemBtn" onclick="saveActionEdit()" class="gold-gradient text-slate-950 px-4 py-2 rounded-xl text-xs font-bold shadow-md hover:opacity-90">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="importModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-dark-card border border-dark-border rounded-3xl max-w-3xl w-full p-6 shadow-2xl">
+            <div class="flex items-center justify-between mb-3 pb-3 border-b border-dark-border">
+                <h3 class="text-base font-bold text-white"><i class="fas fa-file-excel text-brand-400"></i> Import Data Excel</h3>
+                <button onclick="toggleImportModal()" class="text-slate-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+            </div>
+            <div class="bg-[#1e2124] p-4 rounded-2xl border border-slate-800 mb-4 text-xs space-y-2 text-slate-300">
+                <span class="font-bold text-brand-400 block"><i class="fas fa-info-circle"></i> Petunjuk Format Kolom (Copy & Paste dari Excel):</span>
+                <p>Urutan kolom saat copy dari Excel: <strong>Nama Tamu | No HP | Check-In (DD-MM-YYYY) | Check-Out (DD-MM-YYYY) | Company / SOB</strong></p>
+                <p class="text-[11px] text-slate-400">Contoh format tanggal wajib: <strong>03-10-2026</strong> atau <strong>15-10-2026</strong> (format `DD-MM-YYYY` dipastikan aman & konsisten).</p>
+            </div>
+            <textarea id="importTextarea" rows="8" placeholder="Paste data excel di sini (Format: Nama | No HP | Check-In | Check-Out | Company)..." class="w-full bg-[#1e2124] border border-slate-700 rounded-xl p-4 text-xs font-mono text-white focus:outline-none focus:border-brand-500 mb-4"></textarea>
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleImportModal()" class="bg-slate-800 text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold">Batal</button>
+                <button onclick="processExcelImport()" class="gold-gradient text-slate-950 px-5 py-2 rounded-xl text-xs font-bold">Process Data</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx5hm2UqHNO9uBBFUhpxDM61usOi4hvkBP8WQ3b2VbVrJt3RYJ-1KFh4oE7TocZ_zGzaw/exec';
+        let guestDatabase = [];
+        
+        let currentPage = 1;
+        const itemsPerPage = 15;
+        let filteredData = [];
+        let activeEditIndex = null;
+        let currentSelectedYear = "2026";
+        let currentSelectedMonth = "10";
+
+        window.onload = function() { 
+            updateMonthLabelDisplay();
+            fetchDataFromSheets(); 
+        };
+
+        function toggleMonthDropdown() {
+            const popup = document.getElementById('monthDropdownPopup');
+            popup.classList.toggle('hidden');
+        }
+
+        function updateMonthSelection() {
+            const yr = document.getElementById('yearSelect').value;
+            currentSelectedYear = yr;
+        }
+
+        function selectMonth(mNum) {
+            currentSelectedMonth = String(mNum).padStart(2, '0');
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"];
+            const monthFullNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            
+            const buttons = document.querySelectorAll('#monthGridContainer button');
+            buttons.forEach((btn, idx) => {
+                if ((idx + 1) === mNum) {
+                    btn.className = "p-2 rounded-xl bg-brand-500 text-slate-950 font-bold transition-all";
+                } else {
+                    btn.className = "p-2 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-medium transition-all";
+                }
+            });
+
+            const labelStr = `${monthFullNames[mNum - 1]} ${currentSelectedYear}`;
+            document.getElementById('monthPickerLabel').innerText = `${monthNames[mNum - 1]} ${currentSelectedYear}`;
+            document.getElementById('selectedMonthLabel').innerText = labelStr;
+
+            document.getElementById('monthDropdownPopup').classList.add('hidden');
+            filterData();
+        }
+
+        function updateMonthLabelDisplay() {
+            const monthFullNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            const labelStr = `${monthFullNames[parseInt(currentSelectedMonth) - 1]} ${currentSelectedYear}`;
+            document.getElementById('selectedMonthLabel').innerText = labelStr;
+        }
+
+        function normalizeDate(dateStr) {
+            if (!dateStr) return "";
+            let cleanStr = String(dateStr).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
+                let p = cleanStr.split('-');
+                return p[2] + "-" + p[1] + "-" + p[0];
+            }
+            return cleanStr;
+        }
+
+        function fetchDataFromSheets() {
+            if (!SCRIPT_URL) {
+                filterData();
+                updateAllTimeStats();
+                return;
+            }
+            fetch(SCRIPT_URL)
+                .then(res => res.json())
+                .then(data => {
+                    if (Array.isArray(data) && data.length > 0) {
+                        guestDatabase = data.map((item, idx) => ({
+                            id: item.id || idx + 1,
+                            name: item.name || "",
+                            phone: String(item.phone || ""),
+                            company: item.company || "",
+                            sob: item.sob || "CORP / GOV",
+                            point: Number(item.point) || 1,
+                            redeemed: Number(item.redeemed) || 0,
+                            isRedeemedLocked: Boolean(item.isRedeemedLocked),
+                            history: item.history || [{ checkIn: normalizeDate(item.checkIn), checkOut: normalizeDate(item.checkOut), company: item.company || "", point: Number(item.point) || 1 }]
+                        }));
+                    }
+                    filterData();
+                    updateAllTimeStats();
+                }).catch(err => {
+                    console.log("Using zero-data state", err);
+                    filterData();
+                    updateAllTimeStats();
+                });
+        }
+
+        function updateAllTimeStats() {
+            document.getElementById('allTimeGuests').innerText = guestDatabase.length;
+            document.getElementById('allTimePoints').innerText = guestDatabase.reduce((acc, curr) => acc + (curr.point || 0), 0);
+            document.getElementById('allTimeRedeemed').innerText = guestDatabase.reduce((acc, curr) => acc + (curr.redeemed || 0), 0);
+            renderTop20Leaderboard();
+        }
+
+        function filterData() {
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
+            const sobVal = document.getElementById('sobFilter').value;
+
+            filteredData = guestDatabase.filter(item => {
+                const matchSearch = !search || item.name.toLowerCase().includes(search) || item.phone.toLowerCase().includes(search);
+                const matchSOB = sobVal === 'ALL' || item.sob === sobVal;
+                let matchMonth = true;
+                if (item.history) {
+                    matchMonth = item.history.some(h => {
+                        let parts = h.checkIn.split('-');
+                        if (parts.length === 3) {
+                            return (`${parts[2]}-${parts[1]}` === `${currentSelectedYear}-${currentSelectedMonth}`);
+                        }
+                        return false;
+                    });
+                }
+                return matchSearch && matchSOB && matchMonth;
+            });
+
+            document.getElementById('monthlyGuestsCount').innerText = filteredData.length;
+            document.getElementById('monthlyPointsCount').innerText = filteredData.reduce((acc, curr) => acc + (curr.point || 0), 0) + " Pts";
+            document.getElementById('monthlyRedeemCount').innerText = filteredData.reduce((acc, curr) => acc + (curr.redeemed || 0), 0) + " Pts";
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('guestTableBody');
+            tbody.innerHTML = '';
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const paginated = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+            if (paginated.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-slate-500">Tidak ada data ditemukan. Silakan lakukan import data.</td></tr>`;
+            } else {
+                paginated.forEach((guest) => {
+                    const globalIdx = guestDatabase.findIndex(g => g === guest);
+                    const latestStay = guest.history && guest.history.length > 0 ? guest.history[guest.history.length - 1] : { checkIn: '-', checkOut: '-' };
+                    
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-slate-900/40 transition-colors";
+                    row.innerHTML = `
+                        <td class="px-6 py-4 font-semibold text-white">${guest.name}</td>
+                        <td class="px-6 py-4">
+                            <button onclick="openGuestDetail(${globalIdx})" class="text-brand-400 font-mono text-xs hover:underline bg-[#1e2124] px-3.5 py-2 rounded-xl border border-slate-700/60 flex items-center gap-2.5 w-max shadow-sm">
+                                <i class="fas fa-phone-alt text-[11px]"></i> ${guest.phone || '-'}
+                            </button>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <div class="inline-flex items-center gap-3 bg-[#1e2124] px-4 py-2 rounded-xl border border-slate-800/80 text-xs text-slate-300 shadow-sm min-w-[320px] justify-center">
+                                <span class="text-brand-400 font-medium whitespace-nowrap"><i class="fas fa-sign-in-alt mr-1"></i> ${latestStay.checkIn}</span>
+                                <span class="text-slate-600 font-bold">-</span>
+                                <span class="text-amber-400 font-medium whitespace-nowrap"><i class="fas fa-sign-out-alt mr-1"></i> ${latestStay.checkOut}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            <span class="text-xs text-slate-300 block whitespace-nowrap font-medium min-w-[200px]">${guest.company || '-'}</span>
+                            <span class="text-[10px] font-bold px-3 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/30 inline-block mt-1">${guest.sob}</span>
+                        </td>
+                        <td class="px-6 py-4 text-center font-bold text-brand-400">${guest.point}</td>
+                        <td class="px-6 py-4 text-center font-bold text-emerald-400">${guest.redeemed || 0}</td>
+                        <td class="px-6 py-4 text-center">
+                            <button onclick="openActionModal(${globalIdx})" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 transition-all inline-flex items-center justify-center shadow-md">
+                                <i class="fas fa-pen text-xs"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            document.getElementById('paginationInfo').innerText = `Menampilkan ${paginated.length} dari ${filteredData.length} data`;
+            document.getElementById('pageIndicator').innerText = `${currentPage} / ${totalPages}`;
+            document.getElementById('prevBtn').disabled = (currentPage === 1);
+            document.getElementById('nextBtn').disabled = (currentPage === totalPages || totalPages === 0);
+        }
+
+        function changePage(dir) { currentPage += dir; renderTable(); }
+
+        function openGuestDetail(index) {
+            const guest = guestDatabase[index];
+            if (!guest) return;
+            document.getElementById('modalGuestName').innerText = guest.name;
+            document.getElementById('modalGuestPhone').innerText = guest.phone;
+            document.getElementById('modalPoint').innerText = guest.point + " Pts";
+            document.getElementById('modalRedeemed').innerText = (guest.redeemed || 0) + " Pts";
+            
+            const historyContainer = document.getElementById('modalStayHistoryList');
+            historyContainer.innerHTML = '';
+            if (guest.history && guest.history.length > 0) {
+                guest.history.forEach((h, idx) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = "bg-[#1e2124] p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between text-xs";
+                    itemDiv.innerHTML = `
+                        <div>
+                            <span class="text-brand-400 font-bold block mb-1">Stay #${idx + 1} - <span class="text-slate-300 font-normal">${h.company || '-'}</span></span>
+                            <span class="text-slate-300"><i class="fas fa-sign-in-alt text-[10px] mr-1 text-brand-400"></i> ${h.checkIn} &nbsp;-&nbsp; <i class="fas fa-sign-out-alt text-[10px] mr-1 text-amber-400"></i> ${h.checkOut}</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-brand-400 font-bold bg-brand-500/10 px-2.5 py-1 rounded-xl border border-brand-500/30">+${h.point} Pts</span>
+                        </div>
+                    `;
+                    historyContainer.appendChild(itemDiv);
+                });
+            } else {
+                historyContainer.innerHTML = `<p class="text-xs text-slate-500 text-center py-2">Tidak ada riwayat stay.</p>`;
+            }
+
+            const m = document.getElementById('detailModal');
+            m.classList.remove('hidden');
+            setTimeout(() => m.classList.remove('opacity-0'), 10);
+        }
+        function closeDetailModal() {
+            document.getElementById('detailModal').classList.add('hidden');
+        }
+
+        function openActionModal(index) {
+            activeEditIndex = index;
+            const guest = guestDatabase[index];
+            document.getElementById('editNameInput').value = guest.name;
+            document.getElementById('editMaxPointInput').value = guest.point + " Pts";
+            document.getElementById('editMaxPointInput').dataset.max = guest.point;
+            document.getElementById('editRedeemInput').value = guest.redeemed || 0;
+            document.getElementById('editRedeemInput').max = guest.point;
+            
+            const warning = document.getElementById('redeemWarning');
+            const lockedNotice = document.getElementById('redeemLockedNotice');
+            const saveBtn = document.getElementById('saveRedeemBtn');
+
+            warning.classList.add('hidden');
+
+            if (guest.isRedeemedLocked) {
+                document.getElementById('editRedeemInput').disabled = true;
+                document.getElementById('editRedeemInput').classList.add('opacity-50', 'cursor-not-allowed');
+                lockedNotice.classList.remove('hidden');
+                saveBtn.disabled = true;
+                saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                document.getElementById('editRedeemInput').disabled = false;
+                document.getElementById('editRedeemInput').classList.remove('opacity-50', 'cursor-not-allowed');
+                lockedNotice.classList.add('hidden');
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+
+            const m = document.getElementById('actionModal');
+            m.classList.remove('hidden');
+            setTimeout(() => m.classList.remove('opacity-0'), 10);
+        }
+        function closeActionModal() {
+            document.getElementById('actionModal').classList.add('hidden');
+        }
+
+        function validateRedeemInput(input) {
+            const max = parseInt(document.getElementById('editMaxPointInput').dataset.max) || 0;
+            let val = parseInt(input.value) || 0;
+            const warning = document.getElementById('redeemWarning');
+            if (val > max) {
+                warning.classList.remove('hidden');
+                input.value = max;
+            } else {
+                warning.classList.add('hidden');
+            }
+        }
+
+        function saveActionEdit() {
+            const newRedeem = parseInt(document.getElementById('editRedeemInput').value) || 0;
+            if (activeEditIndex !== null && guestDatabase[activeEditIndex]) {
+                guestDatabase[activeEditIndex].redeemed = newRedeem;
+                if (newRedeem > 0) {
+                    guestDatabase[activeEditIndex].isRedeemedLocked = true;
+                }
+                filterData();
+                updateAllTimeStats();
+            }
+            closeActionModal();
+        }
+
+        function toggleLeaderboard() { document.getElementById('leaderboardPanel').classList.toggle('hidden'); }
+        function renderTop20Leaderboard() {
+            let map = {};
+            guestDatabase.forEach(g => {
+                if (!map[g.phone]) map[g.phone] = { name: g.name, total: 0, stays: 0 };
+                map[g.phone].total += (g.point || 0);
+                map[g.phone].stays += (g.history ? g.history.length : 1);
+            });
+            const container = document.getElementById('top20Container');
+            container.innerHTML = Object.values(map).sort((a,b)=>b.total - a.total).slice(0,20).map((m, i)=>`
+                <div class="bg-[#1e2124] border border-slate-800 rounded-xl p-3 flex justify-between items-center text-xs">
+                    <div><span class="font-bold text-white">${i+1}. ${m.name}</span><span class="text-[10px] text-slate-400 block">${m.stays}x stay</span></div>
+                    <span class="font-bold text-brand-400">${m.total} Pts</span>
+                </div>
+            `).join('') || '<p class="text-xs text-slate-500 col-span-full text-center">Belum ada data.</p>';
+        }
+
+        function openImportModal() { 
+            document.getElementById('importTextarea').value = '';
+            document.getElementById('importModal').classList.remove('hidden'); 
+            setTimeout(() => document.getElementById('importModal').classList.remove('opacity-0'), 10); 
+        }
+        
+        function toggleImportModal() { 
+            document.getElementById('importModal').classList.add('hidden'); 
+        }
+        
+        function processExcelImport() {
+            const textareaEl = document.getElementById('importTextarea');
+            const text = textareaEl.value.trim();
+            if (!text) {
+                alert("Kotak teks masih kosong. Silakan paste data Excel terlebih dahulu.");
+                return;
+            }
+            
+            let importDataList = [];
+            let countNew = 0;
+            
+            text.split('\n').forEach(line => {
+                let cols = line.split('\t');
+                if (cols.length < 5) cols = line.split(/[,;|]/);
+                if (cols.length >= 5) {
+                    let name = cols[0].trim();
+                    let phone = cols[1].trim();
+                    let checkIn = normalizeDate(cols[2].trim());
+                    let checkOut = normalizeDate(cols[3].trim());
+                    let comp = cols[4].trim();
+                    let sob = comp.toLowerCase().includes('agoda') || comp.toLowerCase().includes('traveloka') || comp.toLowerCase().includes('tiket') || comp.toLowerCase().includes('booking') ? 'OTA' : 'CORP / GOV';
+                    let pt = sob === 'OTA' ? 1 : 2;
+
+                    importDataList.push({ name, phone, checkIn, checkOut, company: comp, point: pt, redeemed: 0 });
+
+                    let existing = guestDatabase.find(g => g.phone === phone);
+                    if (existing) {
+                        existing.point += pt;
+                        existing.isRedeemedLocked = false;
+                        existing.history.push({ checkIn, checkOut, company: comp, point: pt });
+                    } else {
+                        guestDatabase.push({
+                            id: guestDatabase.length + 1,
+                            name: name,
+                            phone: phone,
+                            company: comp,
+                            sob: sob,
+                            point: pt,
+                            redeemed: 0,
+                            isRedeemedLocked: false,
+                            history: [{ checkIn, checkOut, company: comp, point: pt }]
+                        });
+                    }
+                    countNew++;
+                }
+            });
+
+            if (countNew > 0) {
+                if (SCRIPT_URL) {
+                    fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(importDataList)
+                    }).catch(err => console.log('Sync to sheets error:', err));
+                }
+
+                textareaEl.value = '';
+
+                filterData();
+                updateAllTimeStats();
+                toggleImportModal();
+                alert(`Berhasil memproses dan mengimpor ${countNew} data tamu!`);
+            } else {
+                alert("Format paste excel tidak valid. Pastikan kolom: Nama | No HP | Check-In | Check-Out | Company.");
+            }
+        }
+    </script>
+</body>
+</html>
